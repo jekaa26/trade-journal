@@ -1,0 +1,1151 @@
+import React, { useState, useEffect } from "react";
+import { v4 as uuidv4 } from "uuid";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+
+// הגדרת ממשק למבנה העסקה המסחרית
+interface TradeEntry {
+  id: string;
+  stockName: string;          // שם הנכס (מניה/מטבע/ETF וכו')
+  tradeType: 'long' | 'short'; // סוג העסקה
+  entryPrice: number;         // מחיר כניסה
+  stopLossPrice: number;      // סטופ-לוס
+  targetPrice?: number;       // יעד רווח
+  shares: number;             // גודל הפוזיציה
+  riskAmount: number;         // סיכון כספי
+  cost: number;               // עלות העסקה
+  date: string;               // תאריך ושעה התכנון
+  time?: string;              // שעת התכנון
+  
+  // פרמטרים אסטרטגיים ורגשיים
+  entryReason?: string;       // סיבת הכניסה
+  tradeSetup?: string;        // סוג הסטאפ (דפוס טכני)
+  tradingMood?: string;       // תחושת הסוחר
+  marketConditions?: string;  // תנאי שוק
+  
+  // תיעוד חזותי
+  imageUrl: string;           // קישור לתמונה
+  uploadedImage: string;      // תמונה שהועלתה
+  additionalImages: string[]; // תמונות נוספות
+  chartMarkup?: string;       // סימוני גרף
+  
+  // הערות כלליות
+  notes: string;              // הערות כלליות
+  
+  // נתוני ביצוע העסקה בפועל
+  isExecuted?: boolean;       // האם העסקה בוצעה
+  executionDate?: string;     // תאריך ביצוע העסקה
+  executionTime?: string;     // שעת ביצוע העסקה
+  actualEntryPrice?: number;  // מחיר כניסה בפועל
+  actualShares?: number;      // כמות מניות בפועל
+  exitPrice?: number;         // מחיר יציאה
+  exitDate?: string;          // תאריך יציאה
+  exitTime?: string;          // שעת יציאה
+  profitLoss?: number;        // רווח/הפסד
+  profitLossPercent?: number; // אחוז רווח/הפסד
+  executionNotes?: string;    // הערות ביצוע 
+  timeInTrade?: string;       // זמן שהייה בעסקה
+  
+  // פרמטרים אנליטיים
+  riskRewardRatio?: number;   // יחס סיכון-רווח
+  successRate?: number;       // אחוז הצלחה
+  drawdown?: number;          // הפסד רציף מקסימלי
+  profitFactor?: number;      // יחס סך רווחים להפסדים
+  
+  // שדות נוספים
+  tags?: string[];            // תגיות לסיווג העסקה
+  strategy?: string;          // אסטרטגיה שבשימוש
+  sector?: string;            // סקטור של המניה
+}
+
+export default function TradeJournal() {
+  // משתנים לאחסון רשימת העסקאות
+  const [journalEntries, setJournalEntries] = useState<TradeEntry[]>([]);
+  
+  // משתנים לניהול צורת התצוגה
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+  
+  // משתנים לטופס הוספת/עריכת עסקה
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false);
+  
+  // משתנים עבור הוספת עסקה חדשה
+  const [newSymbol, setNewSymbol] = useState("");
+  const [newTradeType, setNewTradeType] = useState<'long' | 'short'>('long');
+  const [newEntryPrice, setNewEntryPrice] = useState("");
+  const [newStopLoss, setNewStopLoss] = useState("");
+  const [newTargetPrice, setNewTargetPrice] = useState("");
+  const [newNotes, setNewNotes] = useState("");
+  
+  // משתנים המשמשים את עמוד פרטי העסקה המלאים
+  const [currentEntry, setCurrentEntry] = useState<TradeEntry | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<TradeEntry | null>(null);
+  
+  // טעינת עסקאות מה-localStorage בטעינת העמוד
+  useEffect(() => {
+    const savedEntries = localStorage.getItem("tradeJournal");
+    if (savedEntries) {
+      setJournalEntries(JSON.parse(savedEntries));
+    }
+  }, []);
+  
+  // מחיקת עסקה מהיומן
+  const handleDeleteEntry = (id: string) => {
+    if (window.confirm("האם אתה בטוח שברצונך למחוק עסקה זו?")) {
+      const updatedEntries = journalEntries.filter(entry => entry.id !== id);
+      setJournalEntries(updatedEntries);
+      localStorage.setItem("tradeJournal", JSON.stringify(updatedEntries));
+    }
+  };
+  
+  // ניקוי כל היומן
+  const clearJournal = () => {
+    if (window.confirm("האם אתה בטוח שברצונך למחוק את כל העסקאות מהיומן?")) {
+      setJournalEntries([]);
+      localStorage.removeItem("tradeJournal");
+    }
+  };
+  
+  // הוספת עסקה חדשה
+  const handleAddTrade = () => {
+    // בדיקת תקינות הקלט
+    if (!newSymbol || !newEntryPrice || !newStopLoss) {
+      alert("אנא מלא את כל השדות הנדרשים");
+      return;
+    }
+    
+    // חישוב ערכים מספריים
+    const entryPrice = parseFloat(newEntryPrice);
+    const stopLossPrice = parseFloat(newStopLoss);
+    const targetPrice = newTargetPrice ? parseFloat(newTargetPrice) : undefined;
+    
+    // בדיקת תקינות הקלט
+    if (isNaN(entryPrice) || isNaN(stopLossPrice) || (newTargetPrice && isNaN(targetPrice!))) {
+      alert("אנא הזן מחירים תקינים");
+      return;
+    }
+    
+    // חישוב ערכים אוטומטיים
+    const riskPerShare = Math.abs(entryPrice - stopLossPrice);
+    const shares = Math.floor(1000 / riskPerShare); // סכום סיכון קבוע של 1000$ לעסקה
+    const riskAmount = riskPerShare * shares;
+    const cost = entryPrice * shares;
+    
+    // חישוב יחס סיכון-רווח
+    let riskRewardRatio;
+    if (targetPrice) {
+      const potentialProfit = Math.abs(targetPrice - entryPrice);
+      const potentialLoss = Math.abs(entryPrice - stopLossPrice);
+      riskRewardRatio = potentialProfit / potentialLoss;
+    }
+    
+    // יצירת עסקה חדשה
+    const newEntry: TradeEntry = {
+      id: uuidv4(),
+      stockName: newSymbol,
+      tradeType: newTradeType,
+      entryPrice,
+      stopLossPrice,
+      targetPrice,
+      shares,
+      riskAmount,
+      cost,
+      date: new Date().toISOString(),
+      
+      // שדות אנליטיים
+      riskRewardRatio,
+      
+      // שדות חובה
+      notes: newNotes,
+      imageUrl: "",
+      uploadedImage: "",
+      additionalImages: []
+    };
+    
+    // עדכון הרשימה
+    const updatedEntries = [...journalEntries, newEntry];
+    setJournalEntries(updatedEntries);
+    localStorage.setItem("tradeJournal", JSON.stringify(updatedEntries));
+    
+    // איפוס הטופס
+    setNewSymbol("");
+    setNewTradeType('long');
+    setNewEntryPrice("");
+    setNewStopLoss("");
+    setNewTargetPrice("");
+    setNewNotes("");
+    
+    // סגירת חלון הוספת העסקה
+    setIsAddDialogOpen(false);
+  };
+  
+  // דיאלוג להוספת עסקה חדשה
+  // משתנים לעריכת עסקה קיימת
+  const [editSymbol, setEditSymbol] = useState("");
+  const [editTradeType, setEditTradeType] = useState<'long' | 'short'>('long');
+  const [editEntryPrice, setEditEntryPrice] = useState("");
+  const [editStopLoss, setEditStopLoss] = useState("");
+  const [editTargetPrice, setEditTargetPrice] = useState("");
+  const [editRiskRewardRatio, setEditRiskRewardRatio] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  
+  // נתוני ביצוע בפועל
+  const [editActualEntryPrice, setEditActualEntryPrice] = useState("");
+  const [editActualShares, setEditActualShares] = useState("");
+  const [editExecutionDate, setEditExecutionDate] = useState("");
+  const [editExitPrice, setEditExitPrice] = useState("");
+  const [editExitDate, setEditExitDate] = useState("");
+  const [editProfitLoss, setEditProfitLoss] = useState("");
+  const [editIsExecuted, setEditIsExecuted] = useState(false);
+  const [editExecutionNotes, setEditExecutionNotes] = useState("");
+  
+  // אתחול משתני העריכה עם נתוני העסקה הנבחרת
+  useEffect(() => {
+    if (currentEntry && isEditDialogOpen) {
+      setEditSymbol(currentEntry.stockName);
+      setEditTradeType(currentEntry.tradeType || (currentEntry.entryPrice > currentEntry.stopLossPrice ? 'long' : 'short'));
+      setEditEntryPrice(currentEntry.entryPrice.toString());
+      setEditStopLoss(currentEntry.stopLossPrice.toString());
+      setEditTargetPrice(currentEntry.targetPrice?.toString() || "");
+      setEditRiskRewardRatio(currentEntry.riskRewardRatio?.toString() || "");
+      setEditNotes(currentEntry.notes);
+      
+      // נתוני ביצוע
+      setEditActualEntryPrice(currentEntry.actualEntryPrice?.toString() || "");
+      setEditActualShares(currentEntry.actualShares?.toString() || "");
+      setEditExecutionDate(currentEntry.executionDate || "");
+      setEditExitPrice(currentEntry.exitPrice?.toString() || "");
+      setEditExitDate(currentEntry.exitDate || "");
+      setEditProfitLoss(currentEntry.profitLoss?.toString() || "");
+      setEditIsExecuted(currentEntry.isExecuted || false);
+      setEditExecutionNotes(currentEntry.executionNotes || "");
+    }
+  }, [currentEntry, isEditDialogOpen]);
+  
+  // עדכון עסקה
+  const handleUpdateTrade = () => {
+    if (!currentEntry) return;
+    
+    // חישוב ערכים מספריים
+    const entryPrice = parseFloat(editEntryPrice);
+    const stopLossPrice = parseFloat(editStopLoss);
+    const targetPrice = editTargetPrice ? parseFloat(editTargetPrice) : undefined;
+    
+    // בדיקת תקינות הקלט
+    if (isNaN(entryPrice) || isNaN(stopLossPrice)) {
+      alert("אנא הזן מחירים תקינים");
+      return;
+    }
+    
+    // חישוב ערכים אוטומטיים
+    const riskPerShare = Math.abs(entryPrice - stopLossPrice);
+    const shares = Math.floor(1000 / riskPerShare);
+    const riskAmount = riskPerShare * shares;
+    const cost = entryPrice * shares;
+    
+    // חישוב יחס סיכון-רווח
+    let riskRewardRatio = undefined;
+    if (targetPrice) {
+      const potentialProfit = Math.abs(targetPrice - entryPrice);
+      const potentialLoss = Math.abs(entryPrice - stopLossPrice);
+      riskRewardRatio = potentialProfit / potentialLoss;
+    }
+    
+    // חישוב רווח/הפסד אם יש נתוני יציאה
+    let profitLoss = undefined;
+    let profitLossPercent = undefined;
+    if (editExitPrice && editActualEntryPrice) {
+      const exitPrice = parseFloat(editExitPrice);
+      const actualEntryPrice = parseFloat(editActualEntryPrice);
+      const actualShares = editActualShares ? parseFloat(editActualShares) : shares;
+      
+      if (!isNaN(exitPrice) && !isNaN(actualEntryPrice) && !isNaN(actualShares)) {
+        profitLoss = (exitPrice - actualEntryPrice) * actualShares;
+        profitLossPercent = ((exitPrice - actualEntryPrice) / actualEntryPrice) * 100;
+      }
+    }
+    
+    // עדכון העסקה
+    const updatedEntry: TradeEntry = {
+      ...currentEntry,
+      stockName: editSymbol,
+      tradeType: editTradeType,
+      entryPrice,
+      stopLossPrice,
+      targetPrice,
+      shares,
+      riskAmount,
+      cost,
+      notes: editNotes,
+      
+      // נתוני אנליטיים
+      riskRewardRatio,
+      
+      // נתוני ביצוע
+      actualEntryPrice: editActualEntryPrice ? parseFloat(editActualEntryPrice) : undefined,
+      actualShares: editActualShares ? parseFloat(editActualShares) : undefined,
+      executionDate: editExecutionDate || undefined,
+      exitPrice: editExitPrice ? parseFloat(editExitPrice) : undefined,
+      exitDate: editExitDate || undefined,
+      profitLoss,
+      profitLossPercent,
+      isExecuted: editIsExecuted,
+      executionNotes: editExecutionNotes || undefined
+    };
+    
+    // עדכון הרשימה
+    const updatedEntries = journalEntries.map(entry => 
+      entry.id === currentEntry.id ? updatedEntry : entry
+    );
+    
+    setJournalEntries(updatedEntries);
+    localStorage.setItem("tradeJournal", JSON.stringify(updatedEntries));
+    setIsEditDialogOpen(false);
+  };
+  
+  // דיאלוג לעריכת עסקה
+  const renderEditDialog = () => (
+    <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>עריכת עסקה</DialogTitle>
+          <DialogDescription>עדכן את פרטי העסקה או הוסף נתוני ביצוע בפועל</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
+          {/* פרטי עסקה בסיסיים */}
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="editSymbol">סימבול מניה</Label>
+              <Input
+                id="editSymbol"
+                value={editSymbol}
+                onChange={(e) => setEditSymbol(e.target.value)}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>סוג העסקה</Label>
+                <div className="flex gap-3">
+                  <div 
+                    onClick={() => setEditTradeType('long')} 
+                    className={`flex-1 p-2 rounded-md text-center cursor-pointer transition ${editTradeType === 'long' ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-100'}`}
+                  >
+                    Long
+                  </div>
+                  <div 
+                    onClick={() => setEditTradeType('short')} 
+                    className={`flex-1 p-2 rounded-md text-center cursor-pointer transition ${editTradeType === 'short' ? 'bg-red-100 text-red-700 font-medium' : 'bg-gray-100'}`}
+                  >
+                    Short
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* פרטי מחיר */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium mb-3 text-blue-600">פרטי תכנון עסקה</h4>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editEntryPrice">מחיר כניסה</Label>
+                <Input
+                  id="editEntryPrice"
+                  placeholder="154.99"
+                  value={editEntryPrice}
+                  onChange={(e) => setEditEntryPrice(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editStopLoss">מחיר סטופ</Label>
+                <Input
+                  id="editStopLoss"
+                  placeholder="149.50"
+                  value={editStopLoss}
+                  onChange={(e) => setEditStopLoss(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editTargetPrice">יעד רווח</Label>
+                <Input
+                  id="editTargetPrice"
+                  placeholder="170.00"
+                  value={editTargetPrice}
+                  onChange={(e) => setEditTargetPrice(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* נתוני ביצוע בפועל */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium mb-3 text-green-600">ביצוע העסקה בפועל</h4>
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                type="checkbox"
+                id="isExecuted"
+                checked={editIsExecuted}
+                onChange={(e) => setEditIsExecuted(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="isExecuted" className="text-sm cursor-pointer">
+                העסקה בוצעה בפועל
+              </Label>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editActualEntryPrice">מחיר כניסה בפועל</Label>
+                <Input
+                  id="editActualEntryPrice"
+                  placeholder="155.25"
+                  value={editActualEntryPrice}
+                  onChange={(e) => setEditActualEntryPrice(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editActualShares">כמות מניות בפועל</Label>
+                <Input
+                  id="editActualShares"
+                  placeholder="100"
+                  value={editActualShares}
+                  onChange={(e) => setEditActualShares(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editExecutionDate">תאריך כניסה</Label>
+                <Input
+                  id="editExecutionDate"
+                  type="date"
+                  value={editExecutionDate}
+                  onChange={(e) => setEditExecutionDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editExitPrice">מחיר יציאה</Label>
+                <Input
+                  id="editExitPrice"
+                  placeholder="160.00"
+                  value={editExitPrice}
+                  onChange={(e) => setEditExitPrice(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editExitDate">תאריך יציאה</Label>
+                <Input
+                  id="editExitDate"
+                  type="date"
+                  value={editExitDate}
+                  onChange={(e) => setEditExitDate(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="editExecutionNotes">הערות ביצוע</Label>
+              <Textarea
+                id="editExecutionNotes"
+                placeholder="הערות לגבי ביצוע העסקה בפועל"
+                value={editExecutionNotes}
+                onChange={(e) => setEditExecutionNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          
+          {/* הערות כלליות */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium mb-3 text-blue-600">הערות</h4>
+            <div className="space-y-2">
+              <Label htmlFor="editNotes">הערות כלליות</Label>
+              <Textarea
+                id="editNotes"
+                placeholder="הערות נוספות על העסקה"
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>ביטול</Button>
+          <Button type="submit" onClick={handleUpdateTrade}>שמור שינויים</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+  
+  // דיאלוג לתצוגת פרטים מלאים
+  const ViewDetailsDialog = () => {
+    if (!currentEntry || !isViewDetailsOpen) return null;
+    
+    return (
+      <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>פרטי עסקה מלאים - {currentEntry.stockName}</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={`${
+                  currentEntry.tradeType === 'long' || (currentEntry.tradeType === undefined && currentEntry.entryPrice > currentEntry.stopLossPrice) 
+                    ? 'bg-green-500/10 text-green-700' 
+                    : 'bg-red-500/10 text-red-700'
+                  } px-2 py-1 rounded-full text-sm font-medium`}>
+                  {currentEntry.tradeType || (currentEntry.entryPrice > currentEntry.stopLossPrice ? 'Long' : 'Short')}
+                </span>
+              </div>
+              <div className="text-sm text-neutral-500">
+                {new Date(currentEntry.date).toLocaleDateString()}
+                {currentEntry.time && ` ${currentEntry.time}`}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h4 className="font-medium text-blue-600 mb-2 pb-1 border-b">פרטי מחיר ועלויות</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium">מחיר כניסה:</span>
+                    <span className="font-mono">${currentEntry.entryPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium">סטופ לוס:</span>
+                    <span className="font-mono">${currentEntry.stopLossPrice.toFixed(2)}</span>
+                  </div>
+                  {currentEntry.targetPrice && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">יעד רווח:</span>
+                      <span className="font-mono">${currentEntry.targetPrice.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="font-medium">כמות מניות:</span>
+                    <span className="font-mono">{currentEntry.shares}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium">סיכון כספי:</span>
+                    <span className="font-mono">${currentEntry.riskAmount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium">עלות כוללת:</span>
+                    <span className="font-mono">${currentEntry.cost.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h4 className="font-medium text-blue-600 mb-2 pb-1 border-b">פרמטרים אנליטיים</h4>
+                {currentEntry.riskRewardRatio ? (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="font-medium">יחס סיכון/רווח:</span>
+                      <span className="font-mono">{currentEntry.riskRewardRatio.toFixed(2)}</span>
+                    </div>
+                    {currentEntry.successRate && (
+                      <div className="flex justify-between">
+                        <span className="font-medium">אחוז הצלחה:</span>
+                        <span className="font-mono">{currentEntry.successRate}%</span>
+                      </div>
+                    )}
+                    {currentEntry.profitFactor && (
+                      <div className="flex justify-between">
+                        <span className="font-medium">מכפיל רווח:</span>
+                        <span className="font-mono">{currentEntry.profitFactor}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-neutral-500">לא קיימים נתונים אנליטיים</p>
+                )}
+              </div>
+            </div>
+            
+            {/* פרטי אסטרטגיה */}
+            <div>
+              <h4 className="font-medium text-blue-600 mb-2 pb-1 border-b">ניתוח אסטרטגי</h4>
+              {(currentEntry.entryReason || currentEntry.tradeSetup || currentEntry.tradingMood || currentEntry.marketConditions) ? (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {currentEntry.entryReason && (
+                    <div>
+                      <span className="font-medium block">סיבת כניסה:</span>
+                      <span className="text-neutral-600">{currentEntry.entryReason}</span>
+                    </div>
+                  )}
+                  {currentEntry.tradeSetup && (
+                    <div>
+                      <span className="font-medium block">סוג סטאפ:</span>
+                      <span className="text-neutral-600">{currentEntry.tradeSetup}</span>
+                    </div>
+                  )}
+                  {currentEntry.tradingMood && (
+                    <div>
+                      <span className="font-medium block">תחושת מסחר:</span>
+                      <span className="text-neutral-600">{currentEntry.tradingMood}</span>
+                    </div>
+                  )}
+                  {currentEntry.marketConditions && (
+                    <div>
+                      <span className="font-medium block">תנאי שוק:</span>
+                      <span className="text-neutral-600">{currentEntry.marketConditions}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-500">לא הוזן מידע אסטרטגי</p>
+              )}
+            </div>
+              
+            {/* ביצוע בפועל */}
+            {(currentEntry.isExecuted || currentEntry.actualEntryPrice || currentEntry.executionDate) && (
+              <div>
+                <h4 className="font-medium text-green-600 mb-2 pb-1 border-b">ביצוע בפועל</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {currentEntry.actualEntryPrice && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">מחיר כניסה בפועל:</span>
+                      <span className="font-mono">${currentEntry.actualEntryPrice.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {currentEntry.actualShares && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">כמות מניות בפועל:</span>
+                      <span className="font-mono">{currentEntry.actualShares}</span>
+                    </div>
+                  )}
+                  {currentEntry.executionDate && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">תאריך ביצוע:</span>
+                      <span>{currentEntry.executionDate}</span>
+                    </div>
+                  )}
+                  {currentEntry.exitPrice && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">מחיר יציאה:</span>
+                      <span className="font-mono">${currentEntry.exitPrice.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {currentEntry.profitLoss && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">רווח/הפסד:</span>
+                      <span className={`font-mono ${currentEntry.profitLoss > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        ${currentEntry.profitLoss.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* הערות */}
+            {currentEntry.notes && (
+              <div>
+                <h4 className="font-medium text-blue-600 mb-2 pb-1 border-b">הערות כלליות</h4>
+                <p className="text-sm text-neutral-600">{currentEntry.notes}</p>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsViewDetailsOpen(false)}>סגור</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+  
+  // דיאלוג להוספת עסקה חדשה
+  const renderAddDialog = () => (
+    <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>הוספת עסקה חדשה</DialogTitle>
+          <DialogDescription>הזן את פרטי העסקה החדשה</DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="symbol">סימבול מניה</Label>
+              <Input
+                id="symbol"
+                placeholder="לדוגמה: AAPL"
+                value={newSymbol}
+                onChange={(e) => setNewSymbol(e.target.value)}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>סוג העסקה</Label>
+                <div className="flex gap-3">
+                  <div 
+                    onClick={() => setNewTradeType('long')} 
+                    className={`flex-1 p-2 rounded-md text-center cursor-pointer transition ${newTradeType === 'long' ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-100'}`}
+                  >
+                    Long
+                  </div>
+                  <div 
+                    onClick={() => setNewTradeType('short')} 
+                    className={`flex-1 p-2 rounded-md text-center cursor-pointer transition ${newTradeType === 'short' ? 'bg-red-100 text-red-700 font-medium' : 'bg-gray-100'}`}
+                  >
+                    Short
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="border-t pt-4">
+            <h4 className="font-medium mb-3 text-blue-600">פרטי מחיר</h4>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="entryPrice">מחיר כניסה</Label>
+                <Input
+                  id="entryPrice"
+                  placeholder="154.99"
+                  value={newEntryPrice}
+                  onChange={(e) => setNewEntryPrice(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="stopLoss">מחיר סטופ</Label>
+                <Input
+                  id="stopLoss"
+                  placeholder="149.50"
+                  value={newStopLoss}
+                  onChange={(e) => setNewStopLoss(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="targetPrice">יעד רווח (אופציונלי)</Label>
+                <Input
+                  id="targetPrice"
+                  placeholder="170.00"
+                  value={newTargetPrice}
+                  onChange={(e) => setNewTargetPrice(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div className="border-t pt-4">
+            <h4 className="font-medium mb-3 text-blue-600">הערות</h4>
+            <div className="space-y-2">
+              <Label htmlFor="notes">הערות כלליות</Label>
+              <Textarea
+                id="notes"
+                placeholder="הוסף הערות נוספות על העסקה"
+                value={newNotes}
+                onChange={(e) => setNewNotes(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button type="submit" onClick={handleAddTrade}>הוסף עסקה</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+  
+  // תצוגת טבלה (בהתאם לתמונה שצורפה)
+  const renderTradeTable = () => {
+    if (journalEntries.length === 0) return null;
+    
+    return (
+      <div className="overflow-x-auto mt-6 rounded-lg border">
+        <table className="w-full bg-white text-sm overflow-hidden">
+          <thead>
+            <tr className="bg-gradient-to-r from-blue-800 to-blue-600 text-white">
+              <th className="font-medium p-3 text-right">מספר עסקה</th>
+              <th className="font-medium p-3 text-right">סימבול</th>
+              <th className="font-medium p-3 text-right">תאריך</th>
+              <th className="font-medium p-3 text-right">כיוון</th>
+              <th className="font-medium p-3 text-right">מחיר כניסה</th>
+              <th className="font-medium p-3 text-right">סטופ לוס</th>
+              <th className="font-medium p-3 text-right">יעד</th>
+              <th className="font-medium p-3 text-right">כמות מניות</th>
+              <th className="font-medium p-3 text-right">סיכון</th>
+              <th className="font-medium p-3 text-right">עלות</th>
+              <th className="font-medium p-3 text-right">סטטוס</th>
+              <th className="font-medium p-3 text-right">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {journalEntries.map((entry, index) => (
+              <React.Fragment key={entry.id}>
+                <tr className={`border-b ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
+                  <td className="p-3 text-center font-bold bg-yellow-100">{index + 1}</td>
+                  <td className="p-3 font-semibold">{entry.stockName}</td>
+                  <td className="p-3 text-xs">{new Date(entry.date).toLocaleDateString()}</td>
+                  <td className="p-3">
+                    <span className={`${
+                      entry.tradeType === 'long' || (entry.tradeType === undefined && entry.entryPrice > entry.stopLossPrice) 
+                        ? 'bg-green-500/10 text-green-700' 
+                        : 'bg-red-500/10 text-red-700'
+                      } px-2 py-1 rounded-full text-xs font-medium`}>
+                      {entry.tradeType || (entry.entryPrice > entry.stopLossPrice ? 'Long' : 'Short')}
+                    </span>
+                  </td>
+                  <td className="p-3 font-mono text-right">${entry.entryPrice.toFixed(2)}</td>
+                  <td className="p-3 font-mono text-right">${entry.stopLossPrice.toFixed(2)}</td>
+                  <td className="p-3 font-mono text-right">
+                    {entry.targetPrice ? `$${entry.targetPrice.toFixed(2)}` : '$0.00'}
+                  </td>
+                  <td className="p-3 font-mono text-right">{entry.shares}</td>
+                  <td className="p-3 font-mono text-right">${entry.riskAmount.toFixed(2)}</td>
+                  <td className="p-3 font-mono text-right">${entry.cost.toFixed(2)}</td>
+                  <td className="p-3">
+                    {entry.isExecuted ? (
+                      <span className="bg-green-500/10 text-green-700 px-2 py-1 rounded-full text-xs font-medium">
+                        בוצעה
+                      </span>
+                    ) : (
+                      <span className="bg-gray-500/10 text-gray-700 px-2 py-1 rounded-full text-xs font-medium">
+                        תכנון
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <div className="flex justify-center gap-1">
+                      <button 
+                        className="p-1.5 text-blue-600 hover:bg-blue-500/10 rounded-md transition-all"
+                        onClick={() => {
+                          setCurrentEntry(entry);
+                          setIsViewDetailsOpen(true);
+                        }}
+                        title="הצג פרטים מלאים"
+                      >
+                        <i className="ri-file-list-line"></i>
+                      </button>
+                      <button 
+                        className="p-1.5 text-green-600 hover:bg-green-500/10 rounded-md transition-all"
+                        onClick={() => {
+                          setCurrentEntry(entry);
+                          setIsEditDialogOpen(true);
+                        }}
+                        title="ערוך עסקה"
+                      >
+                        <i className="ri-edit-line"></i>
+                      </button>
+                      <button 
+                        className="p-1.5 text-red-600 hover:bg-red-500/10 rounded-md transition-all"
+                        onClick={() => handleDeleteEntry(entry.id)}
+                        title="מחק"
+                      >
+                        <i className="ri-delete-bin-line"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr className="border-b bg-gray-50/50">
+                  <td colSpan={2} className="p-2 text-right text-sm font-medium text-gray-600">פרטי ביצוע:</td>
+                  <td colSpan={10} className="p-2 text-sm">
+                    {entry.isExecuted ? (
+                      <div className="flex items-center space-x-4 space-x-reverse justify-end">
+                        {entry.actualEntryPrice && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-gray-500">מחיר כניסה בפועל:</span>
+                            <span className="font-mono text-green-700">${entry.actualEntryPrice.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {entry.actualShares && (
+                          <div className="flex items-center gap-1 mr-4">
+                            <span className="text-xs text-gray-500">כמות בפועל:</span>
+                            <span className="font-mono text-green-700">{entry.actualShares}</span>
+                          </div>
+                        )}
+                        {entry.exitPrice && (
+                          <div className="flex items-center gap-1 mr-4">
+                            <span className="text-xs text-gray-500">מחיר יציאה:</span>
+                            <span className="font-mono text-green-700">${entry.exitPrice.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {entry.profitLoss && (
+                          <div className="flex items-center gap-1 mr-4">
+                            <span className="text-xs text-gray-500">רווח/הפסד:</span>
+                            <span className={`font-mono ${entry.profitLoss >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                              ${entry.profitLoss.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-500">טרם בוצעה</span>
+                    )}
+                  </td>
+                </tr>
+                {entry.notes && (
+                  <tr className="border-b bg-blue-50">
+                    <td colSpan={2} className="p-2 text-right text-sm font-medium text-blue-600">הערות:</td>
+                    <td colSpan={10} className="p-2 text-sm">
+                      <p className="text-gray-700">{entry.notes}</p>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+  
+  // תצוגת כרטיסיות
+  const renderTradeCards = () => {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {journalEntries.map((entry) => (
+          <div 
+            key={entry.id} 
+            className="group relative p-0 overflow-hidden transition-all duration-300 rounded-xl border border-blue-500/20 hover:border-blue-500/40 bg-white/5 backdrop-blur-sm"
+          >
+            {/* כותרת העסקה */}
+            <div className="flex justify-between items-center p-4 pb-3 border-b border-blue-500/10">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{entry.stockName}</span>
+                <span className={`${
+                  entry.tradeType === 'long' || (entry.tradeType === undefined && entry.entryPrice > entry.stopLossPrice) 
+                    ? 'bg-green-500/10 text-green-500' 
+                    : 'bg-red-500/10 text-red-500'
+                  } text-xs px-2 py-0.5 rounded-full`}>
+                  {entry.tradeType || (entry.entryPrice > entry.stopLossPrice ? 'long' : 'short')}
+                </span>
+              </div>
+              
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                <button 
+                  className="p-1.5 text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
+                  onClick={() => {
+                    setCurrentEntry(entry);
+                    setIsViewDetailsOpen(true);
+                  }}
+                  title="הצג פרטים מלאים"
+                >
+                  <i className="ri-file-list-line"></i>
+                </button>
+                <button 
+                  className="p-1.5 text-green-400 hover:bg-green-500/10 rounded-md transition-all"
+                  onClick={() => {
+                    setCurrentEntry(entry);
+                    setIsEditDialogOpen(true);
+                  }}
+                  title="ערוך עסקה"
+                >
+                  <i className="ri-edit-line"></i>
+                </button>
+                <button 
+                  className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-md transition-all"
+                  onClick={() => handleDeleteEntry(entry.id)}
+                  title="מחק"
+                >
+                  <i className="ri-delete-bin-line"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-[2fr_3fr]">
+              {/* מידע על העסקה */}
+              <div className="px-4 py-3">
+                <div className="text-xs text-blue-400 mb-2">פרטי תכנון</div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">כניסה:</span>
+                    <span className="font-mono">${entry.entryPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">סטופ:</span>
+                    <span className="font-mono">${entry.stopLossPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">מניות:</span>
+                    <span className="font-mono">{entry.shares}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">סיכון:</span>
+                    <span className="font-mono">${entry.riskAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+                
+                {/* פרמטרים אנליטיים - מציג יחס סיכון-רווח אם קיים */}
+                {entry.riskRewardRatio && (
+                  <div className="mt-4">
+                    <div className="text-xs text-blue-400 mb-2">פרמטרים אנליטיים</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-neutral-400">יחס סיכון/רווח:</span>
+                        <span className="font-mono">{entry.riskRewardRatio.toFixed(2)}</span>
+                      </div>
+                      {entry.targetPrice && (
+                        <div className="flex justify-between">
+                          <span className="text-neutral-400">יעד רווח:</span>
+                          <span className="font-mono">${entry.targetPrice.toFixed(2)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* ביצוע בפועל */}
+                {entry.actualEntryPrice && (
+                  <div className="mt-4">
+                    <div className="text-xs text-green-400 mb-2">ביצוע בפועל</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-neutral-400">מחיר בפועל:</span>
+                        <span className="font-mono">${entry.actualEntryPrice.toFixed(2)}</span>
+                      </div>
+                      {entry.actualShares && (
+                        <div className="flex justify-between">
+                          <span className="text-neutral-400">כמות בפועל:</span>
+                          <span className="font-mono">{entry.actualShares}</span>
+                        </div>
+                      )}
+                      {entry.executionDate && (
+                        <div className="flex justify-between">
+                          <span className="text-neutral-400">תאריך ביצוע:</span>
+                          <span className="text-xs">{entry.executionDate}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* גרף ותצוגה חזותית */}
+              <div className="relative">
+                {entry.uploadedImage ? (
+                  <img 
+                    src={entry.uploadedImage} 
+                    alt={`${entry.stockName} Chart`} 
+                    className="w-full h-full object-cover max-h-48 min-h-[150px]" 
+                  />
+                ) : (
+                  <div className="w-full h-full min-h-[150px] bg-gradient-to-br from-blue-900/20 to-blue-800/5 flex items-center justify-center">
+                    <span className="text-blue-300/30 text-5xl">
+                      <i className="ri-line-chart-line"></i>
+                    </span>
+                  </div>
+                )}
+                
+                {/* כיתוב תאריך */}
+                <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-sm text-white/90 text-xs px-2 py-1 rounded-md">
+                  {new Date(entry.date).toLocaleDateString()}
+                </div>
+              </div>
+            </div>
+            
+            {/* הערות */}
+            {entry.notes && (
+              <div className="p-3 border-t border-blue-500/10 bg-blue-500/5">
+                <p className="text-sm text-neutral-300">
+                  <i className="ri-chat-1-line mr-1 text-blue-400"></i>
+                  {entry.notes}
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+  
+  return (
+    <div>
+      <ViewDetailsDialog />
+      {renderEditDialog()}
+      
+      {journalEntries.length === 0 ? (
+        <Card id="trade-journal" className="mt-6">
+          <CardContent className="p-6 flex flex-col items-center justify-center space-y-4 min-h-[200px]">
+            <div className="text-4xl text-neutral-300">
+              <i className="ri-book-2-line"></i>
+            </div>
+            <h3 className="text-xl font-semibold text-neutral-700">יומן המסחר ריק</h3>
+            <p className="text-neutral-500 text-center max-w-md mb-4">
+              הוסף עסקאות ליומן המסחר שלך.
+            </p>
+            {renderAddDialog()}
+            <Button onClick={() => setIsAddDialogOpen(true)}>+ הוסף עסקה חדשה</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card id="trade-journal" className="mt-6 border-0 bg-blue-600/5 dark:bg-blue-900/5 overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-blue-500/10">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                <i className="ri-book-2-line"></i>
+              </span>
+              <h3 className="font-bold text-lg">יומן מסחר</h3>
+            </div>
+            
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsAddDialogOpen(true)}
+                size="sm"
+              >
+                <i className="ri-add-line mr-1"></i>
+                הוסף עסקה
+              </Button>
+              
+              <Button 
+                variant="ghost" 
+                onClick={clearJournal}
+                className="text-sm text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                size="sm"
+              >
+                <i className="ri-delete-bin-line mr-1"></i>
+                נקה הכל
+              </Button>
+            </div>
+          </div>
+
+          <CardContent className="p-4">
+            {/* כפתורי מעבר בין תצוגות */}
+            <div className="flex justify-end mb-4 gap-2">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('table')}
+                className="h-8"
+              >
+                <i className="ri-table-line mr-1"></i>
+                תצוגת טבלה
+              </Button>
+              <Button
+                variant={viewMode === 'cards' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('cards')}
+                className="h-8"
+              >
+                <i className="ri-layout-grid-line mr-1"></i>
+                תצוגת כרטיסיות
+              </Button>
+            </div>
+            
+            {/* תצוגה לפי מצב */}
+            {viewMode === 'table' ? renderTradeTable() : renderTradeCards()}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
